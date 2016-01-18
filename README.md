@@ -24,6 +24,8 @@ Lessons learned from Android developers in [Futurice](http://www.futurice.com). 
 #### Use Robolectric for unit tests, Robotium for connected (UI) tests
 #### Use Genymotion as your emulator
 #### Always use ProGuard or DexGuard
+#### Use SharedPreferences for simple persistence, otherwise ContentProviders
+#### Use Stetho to debug your application
 
 
 ----------
@@ -145,7 +147,27 @@ dependencies {
 ```    
 
 **Avoid Maven dynamic dependency resolution**
-Avoid the use of dynamically versioned, such as `2.1.+` as this may result in different in unstable builds or subtle, untracked differences in behavior between builds. The use of static versions such as `2.1.1` helps create a more stable, predictable and repeatable development environment.
+Avoid the use of dynamically versioned, such as `2.1.+` as this may result in different and unstable builds or subtle, untracked differences in behavior between builds. The use of static versions such as `2.1.1` helps create a more stable, predictable and repeatable development environment.
+
+**Use different package name for non-release builds**
+Use `applicationIdSuffix` for *debug* [build type](http://tools.android.com/tech-docs/new-build-system/user-guide#TOC-Build-Types) to be able to install both *debug* and *release* apk on the same device (do this also for custom build types, if you need any). This will be especially valuable later on in the app's lifecycle, after it has been published to the store.
+
+```groovy
+android {
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-DEBUG'
+        }
+
+        release {
+            // ...
+        }
+    }
+}
+```
+
+Use different icons to distinguish the builds installed on a device—for example with different colors or an overlaid  "debug" label. Gradle makes this very easy: with default project structure, simply put *debug* icon in `app/src/debug/res` and *release* icon in `app/src/release/res`. You could also [change app name](http://stackoverflow.com/questions/24785270/how-to-change-app-name-per-gradle-build-type) per build type, as well as  `versionName` (as in the above example).
 
 ### IDEs and text editors
 
@@ -153,7 +175,9 @@ Avoid the use of dynamically versioned, such as `2.1.+` as this may result in di
 
 The most recommended IDE at the moment is [Android Studio](https://developer.android.com/sdk/installing/studio.html), because it is developed by Google, is closest to Gradle, uses the new project structure by default, is finally in stable stage, and is tailored for Android development.
 
-You can use [Eclipse ADT](https://developer.android.com/sdk/installing/index.html?pkg=adt) if you wish, but you need to configure it, since it expects the old project structure and Ant for building. You can even use a plain text editor like Vim, Sublime Text, or Emacs. In that case, you will need to use Gradle and `adb` on the command line. If Eclipse's integration with Gradle is not working for you, your options are using the command line just to build, or migrating to Android Studio. This is the best option due to ADT plugin was deprecated recently.
+Using [Eclipse ADT](http://developer.android.com/tools/help/adt.html) for Android development is no longer a good practice. [Google ended ADT support at the end of 2015](http://android-developers.blogspot.fi/2015/06/an-update-on-eclipse-android-developer.html) and urges users to [migrate to Android Studio](http://developer.android.com/sdk/installing/migrate.html) as soon as possible. You *could* still use Eclipse, but since it expects the old project structure and Ant for building, you need to configure it to work with Gradle, or if that fails, use the command line to build.
+
+You can even use a plain text editor like Vim, Sublime Text, or Emacs. In that case, you will need to use Gradle and `adb` on the command line. 
 
 Whatever you use, just make sure Gradle and the new project structure remain as the official way of building the application, and avoid adding your editor-specific configuration files to the version control system. For instance, avoid adding an Ant `build.xml` file. Especially don't forget to keep `build.gradle` up-to-date and functioning if you are changing build configurations in Ant. Also, be kind to other developers, don't force them to change their tool of preference.
 
@@ -459,7 +483,7 @@ Android SDK's testing framework is still infant, specially regarding UI tests. A
 
 ```java
 solo.sendKey(Solo.MENU);
-solo.clickOnText("More"); // searches for the first occurence of "More" and clicks on it
+solo.clickOnText("More"); // searches for the first occurrence of "More" and clicks on it
 solo.clickOnText("Preferences");
 solo.clickOnText("Edit File Extensions");
 Assert.assertTrue(solo.searchText("rtf"));
@@ -520,6 +544,37 @@ Read more at [Proguard](http://proguard.sourceforge.net/#manual/examples.html) f
 **Tip.** Save the `mapping.txt` file for every release that you publish to your users. By retaining a copy of the `mapping.txt` file for each release build, you ensure that you can debug a problem if a user encounters a bug and submits an obfuscated stack trace.
 
 **DexGuard**. If you need hard-core tools for optimizing, and specially obfuscating release code, consider [DexGuard](http://www.saikoa.com/dexguard), a commercial software made by the same team that built ProGuard. It can also easily split Dex files to solve the 65k methods limitation.
+
+### Data storage
+
+
+#### SharedPreferences
+
+If you only need to persist simple flags and your application runs in a single process SharedPreferences is probably enough for you. It is a good default option.
+
+There are two reasons why you might not want to use SharedPreferences:
+
+* *Performance*: Your data is complex or there is a lot of it
+* *Multiple processes accessing the data*: You have widgets or remote services that run in their own processes and require synchronized data
+
+
+#### ContentProviders
+
+In the case SharedPreferences is not enough for you, you should use the platform standard ContentProviders, which are fast and process safe.
+
+The single problem with ContentProviders is the amount of boilerplate code that is needed to set them up, as well as low quality tutorials. It is possible, however, to generate the ContentProvider by using a library such as [Schematic](https://github.com/SimonVT/schematic), which significantly reduces the effort.
+
+You still need to write some parsing code yourself to read the data objects from the Sqlite columns and vice versa. It is possible to serialize the data objects, for instance with Gson, and only persist the resulting string. In this way you lose in performance but on the other hand you do not need to declare a column for all the fields of the data class.
+
+
+#### Using an ORM
+
+We generally do not recommend using an Object-Relation Mapping library unless you have unusually complex data and you have a dire need. They tend to be complex and require time to learn. If you decide to go with an ORM you should pay attention to whether or not it is _process safe_ if your application requires it, as many of the existing ORM solutions surprisingly are not.
+
+
+### Use Stetho 
+
+[Stetho](http://facebook.github.io/stetho/) is a debug bridge for Android applications from Facebook that integrates with the Chrome desktop browser's Developer Tools. With Stetho you can easily inspect your application, most notably the network traffic. It also allows you to easily inspect and edit SQLite databases and the shared preferences in your app. You should, however, make sure that Stetho is only enabled in the debug build and not in the release build variant. 
 
 ### Thanks to
 
